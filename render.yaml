@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: postmanage-api
+    runtime: docker
+    dockerfilePath: PostManage/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://0.0.0.0:10000
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: postmanage-db
+          property: connectionString
+    healthCheckPath: /api/posts
+
+databases:
+  - name: postmanage-db
+    plan: free
+    databaseName: PostManageDb
+    user: postmanage_user
+

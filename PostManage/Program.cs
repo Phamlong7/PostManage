@@ -37,8 +37,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
-
+// Render handles HTTPS termination, so we use HTTP only
+// Port is set via ASPNETCORE_URLS environment variable (configured in entrypoint.sh)
 app.UseCors("AllowAll");
 
 app.UseAuthorization();

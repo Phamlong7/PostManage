@@ -28,8 +28,7 @@ RUN apt-get update && \
 RUN dotnet tool install --global dotnet-ef --version 8.0.0
 ENV PATH="$PATH:/root/.dotnet/tools"
 
-EXPOSE 8080
-EXPOSE 8081
+EXPOSE 10000
 
 # Copy published app
 COPY --from=publish /app/publish .
@@ -41,8 +40,8 @@ COPY --from=build /src/PostManage /app/src
 COPY PostManage/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Set environment variables
-ENV ASPNETCORE_URLS=http://+:8080
+# Set environment variables (PORT will be set by Render)
+ENV ASPNETCORE_URLS=http://0.0.0.0:10000
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 ENTRYPOINT ["/app/entrypoint.sh"]

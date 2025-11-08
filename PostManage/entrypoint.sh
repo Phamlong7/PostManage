@@ -1,14 +1,6 @@
 #!/bin/bash
 set -e
 
-echo "Waiting for PostgreSQL to be ready..."
-until pg_isready -h postgres -p 5432 -U postgres; do
-  echo "PostgreSQL is unavailable - sleeping"
-  sleep 1
-done
-
-echo "PostgreSQL is up - executing command"
-
 # Run migrations
 echo "Running database migrations..."
 if [ -f "/app/src/PostManage.csproj" ]; then
@@ -20,5 +12,8 @@ fi
 
 # Start the application
 echo "Starting application..."
+# Use PORT from environment variable if set, otherwise use default 10000
+PORT=${PORT:-10000}
+export ASPNETCORE_URLS="http://0.0.0.0:${PORT}"
 exec dotnet PostManage.dll
 
