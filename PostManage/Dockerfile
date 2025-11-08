@@ -13,13 +13,15 @@ RUN dotnet build "PostManage/PostManage.csproj" -c Release -o /app/build
 # Stage 2: Publish
 FROM build AS publish
 WORKDIR /src
+# Install .NET EF Core tools in build stage (has SDK)
+RUN dotnet tool install --global dotnet-ef --version 8.0.0
 RUN dotnet publish "PostManage/PostManage.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
-# Stage 3: Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+# Stage 3: Runtime (using SDK image to run migrations)
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS final
 WORKDIR /app
 
-# Install PostgreSQL client for health checks and EF Core tools for migrations
+# Install PostgreSQL client for health checks
 RUN apt-get update && \
     apt-get install -y postgresql-client && \
     rm -rf /var/lib/apt/lists/*
