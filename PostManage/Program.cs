@@ -32,6 +32,22 @@ builder.Services.AddScoped<IPostService, PostService>();
 // Add CORS
 builder.Services.AddCors(options =>
 {
+    // Policy for frontend (Vercel)
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy
+            .WithOrigins(
+                "https://post-management-ui.vercel.app",  // Production Vercel URL
+                "http://localhost:3000",                    // Local development
+                "http://localhost:5000",                    // Alternative local port
+                "http://localhost:5173"                     // Vite dev server
+            )
+            .AllowAnyMethod()  // GET, POST, PUT, DELETE, OPTIONS
+            .AllowAnyHeader()  // Content-Type, Authorization, etc.
+            .AllowCredentials(); // Allow cookies and credentials
+    });
+    
+    // Fallback policy for other origins (Swagger, etc.)
     options.AddPolicy("AllowAll", policy =>
     {
         policy.AllowAnyOrigin()
@@ -53,7 +69,10 @@ app.UseSwaggerUI(c =>
 
 // Render handles HTTPS termination, so we use HTTP only
 // Port is set via ASPNETCORE_URLS environment variable (configured in entrypoint.sh)
-app.UseCors("AllowAll");
+
+// Use CORS middleware BEFORE MapControllers
+// This allows preflight OPTIONS requests to be handled correctly
+app.UseCors("AllowFrontend");
 
 app.UseAuthorization();
 
