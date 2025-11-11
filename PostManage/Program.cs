@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using PostManage.Data;
 using PostManage.Services;
 
@@ -22,9 +23,105 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// Add DbContext
+// Add DbContext with safe connection string handling
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+if (string.IsNullOrEmpty(connectionString))
+{
+    throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
+}
+
+// Handle connection string - Render may provide URI format or standard format
+string normalizedConnectionString = connectionString;
+
+// If connection string is a URI (starts with postgres:// or postgresql://), convert it
+if (connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
+    connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
+{
+    try
+    {
+        var uri = new Uri(connectionString);
+        var builder = new NpgsqlConnectionStringBuilder
+        {
+            Host = uri.Host,
+            Port = uri.Port > 0 ? uri.Port : 5432,
+            Database = uri.AbsolutePath.TrimStart('/'),
+            Username = uri.UserInfo.Split(':')[0],
+            Password = uri.UserInfo.Split(':').Length > 1 ? uri.UserInfo.Split(':')[1] : string.Empty
+        };
+        
+        // Parse query string for additional parameters
+        if (!string.IsNullOrEmpty(uri.Query))
+        {
+            var query = uri.Query.TrimStart('?');
+            var queryParams = query.Split('&');
+            foreach (var param in queryParams)
+            {
+                var parts = param.Split('=');
+                if (parts.Length == 2)
+                {
+                    var key = parts[0].ToLowerInvariant();
+                    var value = Uri.UnescapeDataString(parts[1]);
+                    
+                    if (key == "sslmode")
+                    {
+                        if (Enum.TryParse<SslMode>(value, true, out var sslMode))
+                        {
+                            builder.SslMode = sslMode;
+                        }
+                    }
+                }
+            }
+        }
+        
+        normalizedConnectionString = builder.ConnectionString;
+    }
+    catch (Exception ex)
+    {
+        throw new InvalidOperationException($"Failed to parse PostgreSQL URI connection string: {ex.Message}", ex);
+    }
+}
+
+// Validate and parse connection string using NpgsqlConnectionStringBuilder
+NpgsqlConnectionStringBuilder connectionStringBuilder;
+try
+{
+    connectionStringBuilder = new NpgsqlConnectionStringBuilder(normalizedConnectionString);
+}
+catch (Exception ex)
+{
+    // Log connection string info for debugging (mask password)
+    var maskedConnectionString = normalizedConnectionString;
+    if (normalizedConnectionString.Contains("Password=", StringComparison.OrdinalIgnoreCase))
+    {
+        var passwordIndex = normalizedConnectionString.IndexOf("Password=", StringComparison.OrdinalIgnoreCase);
+        var passwordStart = passwordIndex + "Password=".Length;
+        var passwordEnd = normalizedConnectionString.IndexOf(';', passwordStart);
+        if (passwordEnd == -1) passwordEnd = normalizedConnectionString.Length;
+        maskedConnectionString = normalizedConnectionString.Substring(0, passwordStart) + 
+                               "***" + 
+                               normalizedConnectionString.Substring(passwordEnd);
+    }
+    
+    throw new InvalidOperationException(
+        $"Invalid connection string format at index {ex.Message}. " +
+        $"Connection string length: {normalizedConnectionString.Length}. " +
+        $"Masked connection string: {maskedConnectionString}", ex);
+}
+
+// Log connection info (without password) for debugging
+var logger = LoggerFactory.Create(b => b.AddConsole()).CreateLogger("Startup");
+logger.LogInformation("Database connection configured: Host={Host}, Database={Database}, Username={Username}, Port={Port}",
+    connectionStringBuilder.Host,
+    connectionStringBuilder.Database,
+    connectionStringBuilder.Username,
+    connectionStringBuilder.Port);
+
+// Use the validated connection string
+normalizedConnectionString = connectionStringBuilder.ConnectionString;
+
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(normalizedConnectionString));
 
 // Add services
 builder.Services.AddScoped<IPostService, PostService>();
