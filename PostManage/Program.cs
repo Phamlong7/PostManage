@@ -41,7 +41,7 @@ if (connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCas
     try
     {
         var uri = new Uri(connectionString);
-        var builder = new NpgsqlConnectionStringBuilder
+        var connectionBuilder = new NpgsqlConnectionStringBuilder
         {
             Host = uri.Host,
             Port = uri.Port > 0 ? uri.Port : 5432,
@@ -67,14 +67,14 @@ if (connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCas
                     {
                         if (Enum.TryParse<SslMode>(value, true, out var sslMode))
                         {
-                            builder.SslMode = sslMode;
+                            connectionBuilder.SslMode = sslMode;
                         }
                     }
                 }
             }
         }
         
-        normalizedConnectionString = builder.ConnectionString;
+        normalizedConnectionString = connectionBuilder.ConnectionString;
     }
     catch (Exception ex)
     {
