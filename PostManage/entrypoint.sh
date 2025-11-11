@@ -27,6 +27,11 @@ if [ -f "/app/src/PostManage.csproj" ]; then
                 continue
             fi
 
+            # Skip segment if it does not contain '='
+            if [[ "$TRIMMED_SEGMENT" != *"="* ]]; then
+                continue
+            fi
+
             KEY_PART="${TRIMMED_SEGMENT%%=*}"
             VALUE_PART="${TRIMMED_SEGMENT#*=}"
             
@@ -35,6 +40,24 @@ if [ -f "/app/src/PostManage.csproj" ]; then
             KEY_PART="${KEY_PART%"${KEY_PART##*[![:space:]]}"}"
             VALUE_PART="${VALUE_PART#"${VALUE_PART%%[![:space:]]*}"}"
             VALUE_PART="${VALUE_PART%"${VALUE_PART##*[![:space:]]}"}"
+
+            # Remove wrapping quotes if present
+            if [[ "$KEY_PART" == \"*\" ]]; then
+                KEY_PART="${KEY_PART%\"}"
+                KEY_PART="${KEY_PART#\"}"
+            fi
+            if [[ "$VALUE_PART" == \"*\" ]]; then
+                VALUE_PART="${VALUE_PART%\"}"
+                VALUE_PART="${VALUE_PART#\"}"
+            fi
+            if [[ "$KEY_PART" == \'*\' ]]; then
+                KEY_PART="${KEY_PART%\'}"
+                KEY_PART="${KEY_PART#\'}"
+            fi
+            if [[ "$VALUE_PART" == \'*\' ]]; then
+                VALUE_PART="${VALUE_PART%\'}"
+                VALUE_PART="${VALUE_PART#\'}"
+            fi
 
             if [ -z "$KEY_PART" ] || [ -z "$VALUE_PART" ]; then
                 continue

@@ -186,16 +186,27 @@ static string NormalizeKeyValueConnectionString(string rawConnectionString)
 
     foreach (var segment in segments)
     {
-        var parts = segment.Split('=', 2);
+        var trimmedSegment = segment.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedSegment) || !trimmedSegment.Contains('='))
+        {
+            continue;
+        }
+
+        var parts = trimmedSegment.Split('=', 2);
         if (parts.Length != 2)
         {
             continue;
         }
 
-        var key = parts[0].Trim();
-        var value = parts[1].Trim();
+        var key = parts[0].Trim().Trim('"', '\'');
+        var value = parts[1].Trim().Trim('"', '\'');
 
         if (string.IsNullOrEmpty(key))
+        {
+            continue;
+        }
+
+        if (string.IsNullOrEmpty(value))
         {
             continue;
         }
