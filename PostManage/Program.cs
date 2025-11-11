@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using System.Text;
 using PostManage.Data;
 using PostManage.Services;
 
@@ -32,7 +33,7 @@ if (string.IsNullOrEmpty(connectionString))
 }
 
 // Handle connection string - Render may provide URI format or standard format
-string normalizedConnectionString = connectionString;
+string normalizedConnectionString;
 
 // If connection string is a URI (starts with postgres:// or postgresql://), convert it
 if (connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
@@ -54,21 +55,18 @@ if (connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCas
         if (!string.IsNullOrEmpty(uri.Query))
         {
             var query = uri.Query.TrimStart('?');
-            var queryParams = query.Split('&');
+            var queryParams = query.Split('&', StringSplitOptions.RemoveEmptyEntries);
             foreach (var param in queryParams)
             {
-                var parts = param.Split('=');
+                var parts = param.Split('=', 2);
                 if (parts.Length == 2)
                 {
-                    var key = parts[0].ToLowerInvariant();
-                    var value = Uri.UnescapeDataString(parts[1]);
+                    var key = parts[0].Trim().ToLowerInvariant();
+                    var value = Uri.UnescapeDataString(parts[1].Trim());
                     
-                    if (key == "sslmode")
+                    if (key == "sslmode" && Enum.TryParse<SslMode>(value, true, out var sslMode))
                     {
-                        if (Enum.TryParse<SslMode>(value, true, out var sslMode))
-                        {
-                            connectionBuilder.SslMode = sslMode;
-                        }
+                        connectionBuilder.SslMode = sslMode;
                     }
                 }
             }
@@ -80,6 +78,10 @@ if (connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCas
     {
         throw new InvalidOperationException($"Failed to parse PostgreSQL URI connection string: {ex.Message}", ex);
     }
+}
+else
+{
+    normalizedConnectionString = NormalizeKeyValueConnectionString(connectionString);
 }
 
 // Validate and parse connection string using NpgsqlConnectionStringBuilder
@@ -176,3 +178,37 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+static string NormalizeKeyValueConnectionString(string rawConnectionString)
+{
+    var segments = rawConnectionString.Split(';', StringSplitOptions.RemoveEmptyEntries);
+    var sb = new StringBuilder();
+
+    foreach (var segment in segments)
+    {
+        var parts = segment.Split('=', 2);
+        if (parts.Length != 2)
+        {
+            continue;
+        }
+
+        var key = parts[0].Trim();
+        var value = parts[1].Trim();
+
+        if (string.IsNullOrEmpty(key))
+        {
+            continue;
+        }
+
+        if (sb.Length > 0)
+        {
+            sb.Append(';');
+        }
+
+        sb.Append(key);
+        sb.Append('=');
+        sb.Append(value);
+    }
+
+    return sb.ToString();
+}

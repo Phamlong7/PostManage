@@ -13,8 +13,39 @@ if [ -f "/app/src/PostManage.csproj" ]; then
     
     if [ -n "$CONNECTION_STRING" ]; then
         echo "Running migrations with connection string..."
-        export ConnectionStrings__DefaultConnection="$CONNECTION_STRING"
-        dotnet ef database update --project PostManage.csproj --connection "$CONNECTION_STRING" || echo "Migration failed or already applied"
+
+        # Normalize connection string (trim whitespace around keys/values)
+        NORMALIZED_CONNECTION_STRING=""
+        IFS=';' read -ra SEGMENTS <<< "$CONNECTION_STRING"
+        for SEGMENT in "${SEGMENTS[@]}"; do
+            TRIMMED_SEGMENT=$(echo "$SEGMENT" | xargs)
+            if [ -z "$TRIMMED_SEGMENT" ]; then
+                continue
+            fi
+
+            KEY_PART=${TRIMMED_SEGMENT%%=*}
+            VALUE_PART=${TRIMMED_SEGMENT#*=}
+            KEY_PART=$(echo "$KEY_PART" | xargs)
+            VALUE_PART=$(echo "$VALUE_PART" | xargs)
+
+            if [ -z "$KEY_PART" ] || [ -z "$VALUE_PART" ]; then
+                continue
+            fi
+
+            if [ -n "$NORMALIZED_CONNECTION_STRING" ]; then
+                NORMALIZED_CONNECTION_STRING="$NORMALIZED_CONNECTION_STRING;"
+            fi
+
+            NORMALIZED_CONNECTION_STRING="$NORMALIZED_CONNECTION_STRING$KEY_PART=$VALUE_PART"
+        done
+        unset IFS
+
+        if [ -z "$NORMALIZED_CONNECTION_STRING" ]; then
+            echo "WARNING: Failed to normalize connection string, skipping migrations"
+        else
+            export ConnectionStrings__DefaultConnection="$NORMALIZED_CONNECTION_STRING"
+            dotnet ef database update --project PostManage.csproj --connection "$NORMALIZED_CONNECTION_STRING" || echo "Migration failed or already applied"
+        fi
     else
         echo "WARNING: Connection string not found, skipping migrations"
         echo "This may cause issues if database is not already migrated"
