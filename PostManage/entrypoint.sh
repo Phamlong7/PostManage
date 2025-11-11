@@ -15,18 +15,26 @@ if [ -f "/app/src/PostManage.csproj" ]; then
         echo "Running migrations with connection string..."
 
         # Normalize connection string (trim whitespace around keys/values)
+        # Use bash parameter expansion instead of xargs to avoid quote issues
         NORMALIZED_CONNECTION_STRING=""
         IFS=';' read -ra SEGMENTS <<< "$CONNECTION_STRING"
         for SEGMENT in "${SEGMENTS[@]}"; do
-            TRIMMED_SEGMENT=$(echo "$SEGMENT" | xargs)
+            # Trim leading and trailing whitespace using parameter expansion
+            TRIMMED_SEGMENT="${SEGMENT#"${SEGMENT%%[![:space:]]*}"}"
+            TRIMMED_SEGMENT="${TRIMMED_SEGMENT%"${TRIMMED_SEGMENT##*[![:space:]]}"}"
+            
             if [ -z "$TRIMMED_SEGMENT" ]; then
                 continue
             fi
 
-            KEY_PART=${TRIMMED_SEGMENT%%=*}
-            VALUE_PART=${TRIMMED_SEGMENT#*=}
-            KEY_PART=$(echo "$KEY_PART" | xargs)
-            VALUE_PART=$(echo "$VALUE_PART" | xargs)
+            KEY_PART="${TRIMMED_SEGMENT%%=*}"
+            VALUE_PART="${TRIMMED_SEGMENT#*=}"
+            
+            # Trim whitespace from key and value
+            KEY_PART="${KEY_PART#"${KEY_PART%%[![:space:]]*}"}"
+            KEY_PART="${KEY_PART%"${KEY_PART##*[![:space:]]}"}"
+            VALUE_PART="${VALUE_PART#"${VALUE_PART%%[![:space:]]*}"}"
+            VALUE_PART="${VALUE_PART%"${VALUE_PART##*[![:space:]]}"}"
 
             if [ -z "$KEY_PART" ] || [ -z "$VALUE_PART" ]; then
                 continue
