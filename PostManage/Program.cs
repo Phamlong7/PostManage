@@ -24,103 +24,25 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// Add DbContext with safe connection string handling
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+// Add DbContext with connection string normalization
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
 
-if (string.IsNullOrEmpty(connectionString))
-{
-    throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured.");
-}
+// Normalize connection string (handles whitespace and special characters)
+var normalizedConnectionString = connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
+                                 connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase)
+    ? ConvertUriToConnectionString(connectionString)
+    : NormalizeKeyValueConnectionString(connectionString);
 
-// Handle connection string - Render may provide URI format or standard format
-string normalizedConnectionString;
-
-// If connection string is a URI (starts with postgres:// or postgresql://), convert it
-if (connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
-    connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
-{
-    try
-    {
-        var uri = new Uri(connectionString);
-        var connectionBuilder = new NpgsqlConnectionStringBuilder
-        {
-            Host = uri.Host,
-            Port = uri.Port > 0 ? uri.Port : 5432,
-            Database = uri.AbsolutePath.TrimStart('/'),
-            Username = uri.UserInfo.Split(':')[0],
-            Password = uri.UserInfo.Split(':').Length > 1 ? uri.UserInfo.Split(':')[1] : string.Empty
-        };
-        
-        // Parse query string for additional parameters
-        if (!string.IsNullOrEmpty(uri.Query))
-        {
-            var query = uri.Query.TrimStart('?');
-            var queryParams = query.Split('&', StringSplitOptions.RemoveEmptyEntries);
-            foreach (var param in queryParams)
-            {
-                var parts = param.Split('=', 2);
-                if (parts.Length == 2)
-                {
-                    var key = parts[0].Trim().ToLowerInvariant();
-                    var value = Uri.UnescapeDataString(parts[1].Trim());
-                    
-                    if (key == "sslmode" && Enum.TryParse<SslMode>(value, true, out var sslMode))
-                    {
-                        connectionBuilder.SslMode = sslMode;
-                    }
-                }
-            }
-        }
-        
-        normalizedConnectionString = connectionBuilder.ConnectionString;
-    }
-    catch (Exception ex)
-    {
-        throw new InvalidOperationException($"Failed to parse PostgreSQL URI connection string: {ex.Message}", ex);
-    }
-}
-else
-{
-    normalizedConnectionString = NormalizeKeyValueConnectionString(connectionString);
-}
-
-// Validate and parse connection string using NpgsqlConnectionStringBuilder
-NpgsqlConnectionStringBuilder connectionStringBuilder;
+// Validate connection string
 try
 {
-    connectionStringBuilder = new NpgsqlConnectionStringBuilder(normalizedConnectionString);
+    var _ = new NpgsqlConnectionStringBuilder(normalizedConnectionString);
 }
 catch (Exception ex)
 {
-    // Log connection string info for debugging (mask password)
-    var maskedConnectionString = normalizedConnectionString;
-    if (normalizedConnectionString.Contains("Password=", StringComparison.OrdinalIgnoreCase))
-    {
-        var passwordIndex = normalizedConnectionString.IndexOf("Password=", StringComparison.OrdinalIgnoreCase);
-        var passwordStart = passwordIndex + "Password=".Length;
-        var passwordEnd = normalizedConnectionString.IndexOf(';', passwordStart);
-        if (passwordEnd == -1) passwordEnd = normalizedConnectionString.Length;
-        maskedConnectionString = normalizedConnectionString.Substring(0, passwordStart) + 
-                               "***" + 
-                               normalizedConnectionString.Substring(passwordEnd);
-    }
-    
-    throw new InvalidOperationException(
-        $"Invalid connection string format at index {ex.Message}. " +
-        $"Connection string length: {normalizedConnectionString.Length}. " +
-        $"Masked connection string: {maskedConnectionString}", ex);
+    throw new InvalidOperationException($"Invalid connection string format: {ex.Message}", ex);
 }
-
-// Log connection info (without password) for debugging
-var logger = LoggerFactory.Create(b => b.AddConsole()).CreateLogger("Startup");
-logger.LogInformation("Database connection configured: Host={Host}, Database={Database}, Username={Username}, Port={Port}",
-    connectionStringBuilder.Host,
-    connectionStringBuilder.Database,
-    connectionStringBuilder.Username,
-    connectionStringBuilder.Port);
-
-// Use the validated connection string
-normalizedConnectionString = connectionStringBuilder.ConnectionString;
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(normalizedConnectionString));
@@ -179,6 +101,37 @@ app.MapControllers();
 
 app.Run();
 
+static string ConvertUriToConnectionString(string uriString)
+{
+    var uri = new Uri(uriString);
+    var builder = new NpgsqlConnectionStringBuilder
+    {
+        Host = uri.Host,
+        Port = uri.Port > 0 ? uri.Port : 5432,
+        Database = uri.AbsolutePath.TrimStart('/'),
+        Username = uri.UserInfo.Split(':')[0],
+        Password = uri.UserInfo.Split(':').Length > 1 ? uri.UserInfo.Split(':')[1] : string.Empty
+    };
+    
+    if (!string.IsNullOrEmpty(uri.Query))
+    {
+        var query = uri.Query.TrimStart('?');
+        foreach (var param in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = param.Split('=', 2);
+            if (parts.Length == 2 && parts[0].Trim().ToLowerInvariant() == "sslmode")
+            {
+                if (Enum.TryParse<SslMode>(Uri.UnescapeDataString(parts[1].Trim()), true, out var sslMode))
+                {
+                    builder.SslMode = sslMode;
+                }
+            }
+        }
+    }
+    
+    return builder.ConnectionString;
+}
+
 static string NormalizeKeyValueConnectionString(string rawConnectionString)
 {
     var segments = rawConnectionString.Split(';', StringSplitOptions.RemoveEmptyEntries);
@@ -188,37 +141,22 @@ static string NormalizeKeyValueConnectionString(string rawConnectionString)
     {
         var trimmedSegment = segment.Trim();
         if (string.IsNullOrWhiteSpace(trimmedSegment) || !trimmedSegment.Contains('='))
-        {
             continue;
-        }
 
         var parts = trimmedSegment.Split('=', 2);
         if (parts.Length != 2)
-        {
             continue;
-        }
 
         var key = parts[0].Trim().Trim('"', '\'');
         var value = parts[1].Trim().Trim('"', '\'');
 
-        if (string.IsNullOrEmpty(key))
-        {
+        if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(value))
             continue;
-        }
-
-        if (string.IsNullOrEmpty(value))
-        {
-            continue;
-        }
 
         if (sb.Length > 0)
-        {
             sb.Append(';');
-        }
 
-        sb.Append(key);
-        sb.Append('=');
-        sb.Append(value);
+        sb.Append(key).Append('=').Append(value);
     }
 
     return sb.ToString();
